@@ -177,7 +177,7 @@ startup_advert = flood            # Send advert on startup
 # Format: keyword = response_template
 # Variables: {sender}, {connection_info}, {snr}, {timestamp}, {path}
 test = "Message received from {sender} | {connection_info}"
-help = "Bot Help: test, ping, help, hello, cmd, wx, aqi, sun, moon, solar, hfcond, satpass, dice, roll, joke, dadjoke, sports, channels, path, prefix, repeater, stats, alert"
+help = "Bot Help: test, ping, help, hello, cmd, wx, aqi, sun, moon, solar, hfcond, satpass, dice, roll, joke, dadjoke, sports, channels, path, prefix, repeater, stats, alert, chat"
 ```
 
 ### Channels
@@ -234,6 +234,7 @@ Quick reference:
 - **Gaming:** `dice`, `roll`, `magic8`
 - **Entertainment:** `joke`, `dadjoke`, `hacker`, `catfact`
 - **Sports:** `sports`
+- **AI:** `chat` (picolm CLI)
 - **MeshCore Utility:** `path`, `prefix`, `stats`, `multitest`, `webviewer`
 - **Management (DM only):** `repeater`, `advert`, `feed`, `announcements`, `greeter`
 
@@ -271,7 +272,7 @@ Example:
 [Keywords]
 test = "Message received from {sender} | {connection_info}"
 ping = "Pong!"
-help = "Bot Help: test, ping, help, hello, cmd, wx, gwx, aqi, sun, moon, solar, solarforecast, hfcond, satpass, dice, roll, joke, dadjoke, sports, channels, path, prefix, repeater, stats, multitest, alert, webviewer"
+help = "Bot Help: test, ping, help, hello, cmd, wx, gwx, aqi, sun, moon, solar, solarforecast, hfcond, satpass, dice, roll, joke, dadjoke, sports, channels, path, prefix, repeater, stats, multitest, alert, webviewer, chat"
 ```
 
 ## Hardware Setup

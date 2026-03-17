@@ -488,3 +488,7 @@ enabled = false
 [Feed_Command]
 # Enable or disable the feed command
 enabled = false
+
+[Chat]
+# Enable or disable the local LLM chatbot command
+enabled = false

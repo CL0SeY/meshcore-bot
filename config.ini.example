@@ -305,10 +305,10 @@ test = "ack @[{sender}]{phrase_part} | {connection_info} | Received at: {timesta
 ping = "Pong!"
 pong = "Ping!"
 # Override 'help' command output
-# help = "Bot Help: test (or t), ping, help, hello, cmd, advert, wx, aqi, sun, moon, solar, hfcond, satpass, prefix, path, sports, dice, roll, stats | More: 'help <command>'"
+# help = "Bot Help: test (or t), ping, help, hello, cmd, advert, wx, aqi, sun, moon, solar, hfcond, satpass, prefix, path, sports, dice, roll, stats, chat | More: 'help <command>'"
 
 # Override 'cmd' command output
-# cmd = "Available commands: test (or t), ping, help, hello, cmd, advert, wx, aqi, sun, moon, solar, hfcond, satpass, prefix, path, sports, dice, roll, stats"
+# cmd = "Available commands: test (or t), ping, help, hello, cmd, advert, wx, aqi, sun, moon, solar, hfcond, satpass, prefix, path, sports, dice, roll, stats, chat"
 
 [RandomLine]
 # Configurable command to act on a trigger word and respond with a random line from its file
@@ -1597,3 +1597,14 @@ enabled = false
 # api_url = https://example.com/checkins
 # api_key = YOUR_API_KEY
 # Or set CHECKIN_API_KEY in the environment (takes precedence).
+
+[Chat]
+# Enable or disable the local LLM chatbot command
+enabled = true
+
+# Path to the local LLM model file (optional)
+# If empty, picolm will use its default model
+model_path = 
+
+# Maximum number of completion tokens to generate
+max_tokens = 150
