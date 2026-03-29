@@ -1630,7 +1630,7 @@ class PathCommand(BaseCommand):
                     
                     # Truncate name if too long
                     truncation = self.translate('commands.path.truncation')
-                    name = self._truncate_to_byte_length(name, 20, truncation)
+                    name = self._truncate_to_byte_length(name, 25, truncation)
                     
                     # Add confidence indicator
                     if confidence >= 0.9:
@@ -1647,7 +1647,7 @@ class PathCommand(BaseCommand):
                     name = info.get('name', self.translate('commands.path.unknown_name'))
                     
                     truncation = self.translate('commands.path.truncation')
-                    name = self._truncate_to_byte_length(name, 27, truncation)
+                    name = self._truncate_to_byte_length(name, 25, truncation)
                     
                     line = self.translate('commands.path.node_format', node_id=node_id, name=name)
             else:

@@ -14,8 +14,8 @@ services:
     
     # Device access for serial ports (Linux)
     # Uncomment and adjust if using serial connection
-    # devices:
-    #   - /dev/ttyUSB0:/dev/ttyUSB0
+    devices:
+      - /dev/ttyACM0:/dev/ttyUSB0
     
     # Network mode for host access (needed for BLE and some serial setups)
     # Uncomment if you need host network access
@@ -25,7 +25,7 @@ services:
     
     # Environment variables (optional, can override config.ini settings)
     environment:
-      - TZ=America/Los_Angeles  # Set your timezone
+      - TZ=Sydney/Australia  # Set your timezone
       # - PYTHONUNBUFFERED=1  # Already set in Dockerfile
     
     # Volume mappings for persistent data

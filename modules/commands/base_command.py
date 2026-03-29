@@ -525,8 +525,8 @@ class BaseCommand(ABC):
             username = self.bot.config.get('Bot', 'bot_name', fallback='Bot')
         
         # 160 bytes are available for channel messages 
-        # Calculate max length: 160 - username_length - 2 (for ": ")
-        max_length = 160 - len(str(username).encode('utf-8')) - 2
+        # Calculate max length: 160 - username_length - 5 (for "[@]: ")
+        max_length = 160 - len(str(username).encode('utf-8')) - 5
         
         # Ensure we don't return a negative or unreasonably small value
         # Minimum of 130 characters to ensure some functionality

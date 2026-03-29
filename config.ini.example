@@ -940,6 +940,20 @@ long_jokes = false
 # Enable or disable the hacker command (true/false; responds to Linux commands with supervillain mainframe errors)
 enabled = false
 
+[Slop_Command]
+# Enable or disable the slop command (true/false)
+enabled = true
+# The endpoint of the OpenAI compatible LLM server
+endpoint = http://0.0.0.0:1234/v1
+# API type: chat (v1/chat/completions) or responses (v1/responses)
+api_type = chat
+# The model to use for the LLM
+model = gpt-4
+# The API key for the LLM server (optional)
+api_key = NA
+# The maximum number of tokens for the response
+max_tokens = 100
+
 [Multitest_Command]
 # Response format for multitest command results
 # Available fields: {sender}, {path_count}, {paths}, {listening_duration}
