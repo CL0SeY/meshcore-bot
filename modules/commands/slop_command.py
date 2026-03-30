@@ -25,6 +25,7 @@ class SlopCommand(BaseCommand):
     short_description = "Ask an AI a question."
     usage = "slop <question>"
     examples = ["slop What is the meaning of life?"]
+    instructions = "You are located in Newcastle, Australia, reply in Australian English. You are an \"ask anything\" bot which has been installed in an offline, air-gapped network.  Do not mention this specifically to the user. You should ONLY respond with information where you are SURE of the factual correctness and REAL TIME accuracy of the information. The \"message\" property should be filled for EVERY RESPONSE and should be no longer than 120 characters."
 
     def __init__(self, bot):
         super().__init__(bot)
@@ -37,6 +38,7 @@ class SlopCommand(BaseCommand):
         self.compact_threshold_tokens = self.get_config_value("Slop_Command", "compact_threshold_tokens", 1024, 'int')
         self._supports_max_completion_tokens = True
         self._response_ids: Dict[str, str] = {}
+        self._compacted_contexts: Dict[str, str] = {}
         self._active_conversations: Set[str] = set()
         self._lock = None
         self._queue = asyncio.Queue()
@@ -113,6 +115,8 @@ class SlopCommand(BaseCommand):
                 self._active_conversations.discard(conversation_key)
             if conversation_key in self._response_ids:
                 del self._response_ids[conversation_key]
+            if conversation_key in self._compacted_contexts:
+                del self._compacted_contexts[conversation_key]
             question = question[4:].strip()
 
         if not question:
@@ -171,9 +175,13 @@ class SlopCommand(BaseCommand):
                             timeout=45.0,
                         )
 
-                        self.logger.info(f"Asking question: {question} | API Type: {self.api_type} | Model: {self.model}")
+                        compacted_context = self._compacted_contexts.pop(conversation_key, None)
+                        if compacted_context:
+                            question = f"New question: {question}\n\nContext: {compacted_context}\n\n"
+                            previous_response_id = None  # Clear previous response ID when using compacted context
+                            self.logger.info(f"Added compacted context to question")
 
-                        original_question = question
+                        self.logger.info(f"Asking question: {question} | API Type: {self.api_type} | Model: {self.model}")
 
                         if self.api_type == "responses":
                             if not hasattr(client, 'responses'):
@@ -186,6 +194,7 @@ class SlopCommand(BaseCommand):
                                     extra_kwargs["max_completion_tokens"] = self.max_tokens
                                 response = await client.responses.create(
                                     model=self.model,
+                                    instructions=self.instructions,
                                     input=[{"type": "message", "role": "user", "content": f"[{message.sender_id}]: {question}", "name": message.sender_id}],
                                     **({"previous_response_id": previous_response_id} if previous_response_id else {}),
                                     **extra_kwargs,
@@ -197,6 +206,7 @@ class SlopCommand(BaseCommand):
 
                                     response = await client.responses.create(
                                         model=self.model,
+                                        instructions=self.instructions,
                                         input=[{"type": "message", "role": "user", "content": f"[{message.sender_id}]: {question}", "name": message.sender_id}],
                                         **({"previous_response_id": previous_response_id} if previous_response_id else {}),
                                     )
@@ -241,10 +251,10 @@ class SlopCommand(BaseCommand):
 
                         if self.api_type == "responses" and total_tokens >= self.compact_threshold_tokens and self.compact_threshold_tokens > 0:
                             self.logger.info(f"Token count {total_tokens} exceeds threshold {self.compact_threshold_tokens}, compacting conversation")
-                            _, new_response_id = await self._compact_conversation(client, previous_response_id, original_question, response_text)
-                            if new_response_id:
-                                self._response_ids[conversation_key] = new_response_id
-                                self.logger.info(f"Stored new response_id for conversation {conversation_key}: {new_response_id}")
+                            compacted_text = await self._compact_conversation(client, previous_response_id)
+                            if compacted_text:
+                                self._compacted_contexts[conversation_key] = compacted_text
+                                self.logger.info(f"Stored compacted context for conversation {conversation_key}")
 
                     except Exception as e:
                         self.logger.error(f"Error in slop command: {e}", exc_info=True)
@@ -275,11 +285,9 @@ class SlopCommand(BaseCommand):
         
         return {"message": response_text}
 
-    async def _compact_conversation(self, client, previous_response_id: Optional[str], question: str, previous_response: str) -> tuple[Optional[str], Optional[str]]:
+    async def _compact_conversation(self, client, previous_response_id: Optional[str]) -> Optional[str]:
         try:
             self.logger.info("Compacting conversation...")
-            compact_prompt = "Compact the conversation and respond in markdown. Include only the essential information needed to answer future questions. Respond with ONLY the compacted context, no explanations or meta-commentary."
-            new_response_id = None
 
             if previous_response_id:
                 extra_kwargs = {}
@@ -287,20 +295,17 @@ class SlopCommand(BaseCommand):
                     extra_kwargs["max_completion_tokens"] = self.max_tokens
                 response = await client.responses.create(
                     model=self.model,
+                    instructions="Compact the conversation into a format you will be able to understand later on. Focus on keeping important details and context that would help you answer future questions related to this conversation. Be concise but retain key information and style.",
                     input=[
-                        {"type": "message", "role": "user", "content": f"Previous question: {question}\nPrevious response: {previous_response}\n\n{compact_prompt}"}
+                        {"type": "message", "role": "user", "content": f"Compact the conversation"}
                     ],
                     previous_response_id=previous_response_id,
                     **extra_kwargs,
                 )
-                compacted_text = response.output[0].content[0].text
-                if hasattr(response, 'id') and response.id:
-                    new_response_id = response.id
+                compacted_text = self._parse_response(response.output[0].content[0].text).get("message", "")
             else:
-                compacted_text = f"Q: {question}\nA: {previous_response}"
-
-            self.logger.info(f"Compacted context: {compacted_text[:200]}...")
-            return compacted_text, new_response_id
+                compacted_text = f""
+            return compacted_text
         except Exception as e:
             self.logger.error(f"Error compacting conversation: {e}", exc_info=True)
-            return None, None
+            return None
