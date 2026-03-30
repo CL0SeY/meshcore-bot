@@ -34,6 +34,8 @@ class SlopCommand(BaseCommand):
         self.model = self.get_config_value("Slop_Command", "model", "gpt-4", 'str')
         self.api_key = self.get_config_value("Slop_Command", "api_key", "NA", 'str')
         self.max_tokens = self.get_config_value("Slop_Command", "max_tokens", 100, 'int')
+        self.compact_threshold_tokens = self.get_config_value("Slop_Command", "compact_threshold_tokens", 1024, 'int')
+        self._supports_max_completion_tokens = True
         self._response_ids: Dict[str, str] = {}
         self._active_conversations: Set[str] = set()
         self._lock = None
@@ -73,14 +75,15 @@ class SlopCommand(BaseCommand):
         if super().matches_custom_syntax(message):
             return True
 
+        if self._is_bot_mentioned(message.content):
+            return True
+
         content = message.content.strip()
         if not content:
             return False
         if message.is_dm:
-            if not self.matches_keyword(message):
-                return True
-        content_lower = content.lower()
-        if not content_lower.startswith("slop"):
+            return True
+        if self.matches_keyword(message):
             return True
         return False
 
@@ -170,21 +173,27 @@ class SlopCommand(BaseCommand):
 
                         self.logger.info(f"Asking question: {question} | API Type: {self.api_type} | Model: {self.model}")
 
+                        original_question = question
+
                         if self.api_type == "responses":
                             if not hasattr(client, 'responses'):
                                 self.logger.error(f"Responses API not available. OpenAI version: {openai.__version__ if hasattr(openai, '__version__') else 'unknown'}")
                                 await self.send_response(message, "Responses API not available. Update openai library.", skip_user_rate_limit=True)
                                 continue
                             try:
+                                extra_kwargs = {}
+                                if self._supports_max_completion_tokens:
+                                    extra_kwargs["max_completion_tokens"] = self.max_tokens
                                 response = await client.responses.create(
                                     model=self.model,
-                                    max_completion_tokens=self.max_tokens,
                                     input=[{"type": "message", "role": "user", "content": f"[{message.sender_id}]: {question}", "name": message.sender_id}],
                                     **({"previous_response_id": previous_response_id} if previous_response_id else {}),
+                                    **extra_kwargs,
                                 )
                             except TypeError as e:
                                 if "max_completion_tokens" in str(e):
-                                    self.logger.warning(f"LM Studio doesn't support max_completion_tokens, retrying without it")
+                                    self.logger.warning(f"LM Studio doesn't support max_completion_tokens, disabling")
+                                    self._supports_max_completion_tokens = False
 
                                     response = await client.responses.create(
                                         model=self.model,
@@ -201,6 +210,8 @@ class SlopCommand(BaseCommand):
                                 self.logger.warning(f"No id in response. Response: {response}")
 
                             response_text = response.output[0].content[0].text
+                            total_tokens = hasattr(response, 'usage') and getattr(response.usage, 'total_tokens', 0) or 0
+                            self.logger.info(f"Received response: {response_text} | Total tokens: {total_tokens}")
                         else:
                             chat_completion = await client.chat.completions.create(
                                 messages=[
@@ -213,10 +224,11 @@ class SlopCommand(BaseCommand):
                                 max_completion_tokens=self.max_tokens,
                             )
                             response_text = chat_completion.choices[0].message.content
-                        
+                            total_tokens = 0
+
                         parsed = self._parse_response(response_text)
                         response_to_send = parsed["message"]
-                        
+
                         if parsed.get("more", {}).get("topics"):
                             topics = parsed["topics"]
                             response_to_send += f" | {', '.join(topics[:3])}"
@@ -226,6 +238,13 @@ class SlopCommand(BaseCommand):
                             response_to_send = response_to_send[:max_len].rsplit(' ', 1)[0] + "..."
 
                         await self.send_response(message, response_to_send, skip_user_rate_limit=True)
+
+                        if self.api_type == "responses" and total_tokens >= self.compact_threshold_tokens and self.compact_threshold_tokens > 0:
+                            self.logger.info(f"Token count {total_tokens} exceeds threshold {self.compact_threshold_tokens}, compacting conversation")
+                            _, new_response_id = await self._compact_conversation(client, previous_response_id, original_question, response_text)
+                            if new_response_id:
+                                self._response_ids[conversation_key] = new_response_id
+                                self.logger.info(f"Stored new response_id for conversation {conversation_key}: {new_response_id}")
 
                     except Exception as e:
                         self.logger.error(f"Error in slop command: {e}", exc_info=True)
@@ -255,3 +274,33 @@ class SlopCommand(BaseCommand):
                 pass
         
         return {"message": response_text}
+
+    async def _compact_conversation(self, client, previous_response_id: Optional[str], question: str, previous_response: str) -> tuple[Optional[str], Optional[str]]:
+        try:
+            self.logger.info("Compacting conversation...")
+            compact_prompt = "Compact the conversation and respond in markdown. Include only the essential information needed to answer future questions. Respond with ONLY the compacted context, no explanations or meta-commentary."
+            new_response_id = None
+
+            if previous_response_id:
+                extra_kwargs = {}
+                if self._supports_max_completion_tokens:
+                    extra_kwargs["max_completion_tokens"] = self.max_tokens
+                response = await client.responses.create(
+                    model=self.model,
+                    input=[
+                        {"type": "message", "role": "user", "content": f"Previous question: {question}\nPrevious response: {previous_response}\n\n{compact_prompt}"}
+                    ],
+                    previous_response_id=previous_response_id,
+                    **extra_kwargs,
+                )
+                compacted_text = response.output[0].content[0].text
+                if hasattr(response, 'id') and response.id:
+                    new_response_id = response.id
+            else:
+                compacted_text = f"Q: {question}\nA: {previous_response}"
+
+            self.logger.info(f"Compacted context: {compacted_text[:200]}...")
+            return compacted_text, new_response_id
+        except Exception as e:
+            self.logger.error(f"Error compacting conversation: {e}", exc_info=True)
+            return None, None
