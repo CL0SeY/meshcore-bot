@@ -408,21 +408,25 @@ class BaseCommand(ABC):
         """
         # Check channel access (standardized channel override)
         if not skip_channel_check and not self.is_channel_allowed(message):
+            self.logger.warning(f"can_execute failed: channel not allowed")
             return False
         
         # Check if command requires DM and message is not DM
         if self.requires_dm and not message.is_dm:
+            self.logger.warning(f"can_execute failed: requires DM but not DM")
             return False
         
         # Check cooldown (per-user if message has sender_id, otherwise global)
         if self.cooldown_seconds > 0:
             can_execute, _ = self.check_cooldown(message.sender_id if message.sender_id else None)
             if not can_execute:
+                self.logger.warning(f"can_execute failed: on cooldown")
                 return False
         
         # Check admin ACL if this command requires admin access
         if self.requires_admin_access():
             if not self._check_admin_access(message):
+                self.logger.warning(f"can_execute failed: admin access denied")
                 return False
         
         return True

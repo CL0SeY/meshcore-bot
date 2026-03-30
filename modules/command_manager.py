@@ -217,9 +217,6 @@ class CommandManager:
                     
                     self.logger.debug(f"Executing queued command '{command.name}' for user {message.sender_id}")
                     
-                    # Record execution to prevent immediate re-queuing
-                    command.record_execution(message.sender_id if message.sender_id else None)
-                    
                     # Execute the command (bypass normal flow)
                     try:
                         await self._execute_queued_command(command, message)
