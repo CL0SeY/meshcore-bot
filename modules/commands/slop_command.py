@@ -129,7 +129,10 @@ class SlopCommand(BaseCommand):
         self._ensure_lock()
         if self._lock.locked():
             self.logger.info("SlopCommand.execute: lock is locked, queueing and notifying user")
-            await self.send_response(message, f"I'm busy with another request. You are number {self._queue.qsize() + 1} in line. Please wait.", skip_user_rate_limit=True)
+            if self._queue.empty():
+                await self.send_response(message, "🗜️ ⏳ You'll be with them in a second.", skip_user_rate_limit=True)
+            else:
+                await self.send_response(message, f"I'm busy with another request. You are number {self._queue.qsize() + 1} in line. Please wait.", skip_user_rate_limit=True)
             self.logger.info("SlopCommand.execute: finished notifying user")
         else:
             self.logger.info("SlopCommand.execute: lock is not locked, sending working message")
