@@ -172,8 +172,7 @@ class SlopCommand(BaseCommand):
 
             compacted_context = self._compacted_contexts.pop(conversation_key, None)
             if compacted_context:
-                question = f"Context: {compacted_context}\n\nQuestion: {question}\n\n"
-                previous_response_id = None
+                question = f"Question: {question}\n\nContext: `{compacted_context}`"
                 self.logger.info(f"Added compacted context to question")
 
             self.logger.info(f"Asking question: {question} | API Type: {self.api_type} | Model: {self.model}")
@@ -183,31 +182,14 @@ class SlopCommand(BaseCommand):
                     self.logger.error(f"Responses API not available. OpenAI version: {openai.__version__ if hasattr(openai, '__version__') else 'unknown'}")
                     await self.send_response(message, "Responses API not available. Update openai library.", skip_user_rate_limit=True)
                     return
-                try:
-                    extra_kwargs = {}
-                    if self._supports_max_output_tokens:
-                        extra_kwargs["max_output_tokens"] = self.max_tokens
-                    response = await client.responses.create(
-                        model=self.model,
-                        instructions=self.instructions,
-                        input=[{"type": "message", "role": "user", "content": f"[{message.sender_id}]: {question}", "name": message.sender_id}],
-                        **({"previous_response_id": previous_response_id} if previous_response_id else {}),
-                        **extra_kwargs,
-                    )
-                except TypeError as e:
-                    if "max_output_tokens" in str(e):
-                        self.logger.warning(f"LM Studio doesn't support max_output_tokens, disabling")
-                        self._supports_max_output_tokens = False
 
-                        response = await client.responses.create(
-                            model=self.model,
-                            instructions=self.instructions,
-                            input=[{"type": "message", "role": "user", "content": f"[{message.sender_id}]: {question}", "name": message.sender_id}],
-                            **({"previous_response_id": previous_response_id} if previous_response_id else {}),
-                        )
-                    else:
-                        raise
-
+                response = await client.responses.create(
+                    model=self.model,
+                    instructions=self.instructions,
+                    input=[{"type": "message", "role": "user", "content": f"[{message.sender_id}]: {question}", "name": message.sender_id}],
+                    max_output_tokens=self.max_tokens,
+                    **({"previous_response_id": previous_response_id} if previous_response_id else {}),
+                )
                 if hasattr(response, 'id') and response.id:
                     self.logger.info(f"Received response_id: {response.id}")
                     self._response_ids[conversation_key] = response.id
@@ -247,7 +229,7 @@ class SlopCommand(BaseCommand):
             if self.api_type == "responses" and total_tokens >= self.compact_threshold_tokens and self.compact_threshold_tokens > 0:
                 self._compacted_contexts[conversation_key] = "Compacting conversation, please wait..."
                 self.logger.info(f"Token count {total_tokens} exceeds threshold {self.compact_threshold_tokens}, compacting conversation")
-                compacted_text = await self._compact_conversation(client, previous_response_id)
+                compacted_text = await self._compact_conversation(client, previous_response_id, question, response_to_send)
                 del self._response_ids[conversation_key]
                 if compacted_text:
                     self._compacted_contexts[conversation_key] = compacted_text
@@ -293,26 +275,23 @@ class SlopCommand(BaseCommand):
         
         return {"message": response_text}
 
-    async def _compact_conversation(self, client, previous_response_id: Optional[str]) -> Optional[str]:
+    async def _compact_conversation(self, client, previous_response_id: Optional[str], lastQuestion: str, lastMessage: str) -> Optional[str]:
         try:
             self.logger.info("Compacting conversation...")
 
             if previous_response_id:
-                extra_kwargs = {}
-                if self._supports_max_output_tokens:
-                    extra_kwargs["max_output_tokens"] = self.max_tokens
                 response = await client.responses.create(
                     model=self.model,
-                    instructions="Compact the conversation into a format you will be able to understand later on. Focus on keeping important details and context that would help you answer future questions related to this conversation. Be concise but retain key information and style and prioritise the recent messages.",
+                    instructions="Compact the conversation into a bunch of topics in extremely concise format. Focus on keeping important details and context that would help you answer future questions related to this conversation..",
                     input=[
                         {"type": "message", "role": "user", "content": f"Compact the conversation"}
                     ],
                     previous_response_id=previous_response_id,
-                    **extra_kwargs,
+                    max_output_tokens=self.max_tokens
                 )
-                compacted_text = self._parse_response(response.output[0].content[0].text).get("message", "")
+                compacted_text = f"| Context: " + self._parse_response(response.output[0].content[0].text).get("message", "") + f" | Last question: {lastQuestion} | Last response: {lastMessage} |"
             else:
-                compacted_text = f""
+                compacted_text = f"| Last question: {lastQuestion} | Last response: {lastMessage} |"
             return compacted_text
         except Exception as e:
             self.logger.error(f"Error compacting conversation: {e}", exc_info=True)
