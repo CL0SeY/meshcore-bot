@@ -25,7 +25,7 @@ class SlopCommand(BaseCommand):
     short_description = "Ask an AI a question."
     usage = "slop <question>"
     examples = ["slop What is the meaning of life?"]
-    instructions = "You are located in Newcastle, Australia, reply in Australian English. You are an \"ask anything\" bot which has been installed in an offline, air-gapped network.  Do not mention this specifically to the user. You should ONLY respond with information where you are SURE of the factual correctness and REAL TIME accuracy of the information. The \"message\" property should be filled for EVERY RESPONSE and should be no longer than 120 characters."
+    instructions = "Your response is limited to 20 tokens. You are located in Newcastle, Australia, reply in Australian English. You are an \"ask anything\" bot which has been installed in an offline, air-gapped network.  Do not mention this specifically to the user. If you don't know the answer, say you don't know. If the question is subjective, give a nuanced answer that covers multiple perspectives. Always be concise and to the point, we only have a small amount of space in the messages we send. Do not include any information in your response that you cannot be sure is accurate and up to date as of today. If the user asks you to do something unethical, illegal, or harmful, refuse and explain why.\n\nWhen responding with emoji, you must use unicode style, not shortcodes. For example, use 🐍 instead of :snake:."
 
     def __init__(self, bot):
         super().__init__(bot)
@@ -39,7 +39,6 @@ class SlopCommand(BaseCommand):
         self._supports_max_completion_tokens = True
         self._response_ids: Dict[str, str] = {}
         self._compacted_contexts: Dict[str, str] = {}
-        self._active_conversations: Set[str] = set()
         self._lock = None
         self._queue = asyncio.Queue()
         self._worker_task = None
@@ -111,8 +110,6 @@ class SlopCommand(BaseCommand):
         )
 
         if starts_with_slop:
-            if conversation_key in self._active_conversations:
-                self._active_conversations.discard(conversation_key)
             if conversation_key in self._response_ids:
                 del self._response_ids[conversation_key]
             if conversation_key in self._compacted_contexts:
@@ -127,12 +124,20 @@ class SlopCommand(BaseCommand):
             return True
 
         self._ensure_lock()
+        is_compacting = conversation_key in self._compacted_contexts
+        is_already_processing = conversation_key in self._response_ids
+
+        if is_already_processing and not is_compacting:
+            self.logger.info(f"SlopCommand.execute: already processing for {conversation_key}, telling user to wait")
+            await self.send_response(message, "I'm already responding to you in this conversation! Please wait for my response before sending another message.", skip_user_rate_limit=True)
+            return True
+
         if self._lock.locked():
             self.logger.info("SlopCommand.execute: lock is locked, queueing and notifying user")
-            if self._queue.empty():
-                await self.send_response(message, "🗜️ ⏳ You'll be with them in a second.", skip_user_rate_limit=True)
+            if self._queue.empty() and is_compacting and is_already_processing:
+                await self.send_response(message, "Whoa that was a bit much... 🗜️ ⏳ I'll respond in a moment.", skip_user_rate_limit=True)
             else:
-                await self.send_response(message, f"I'm busy with another request. You are number {self._queue.qsize() + 1} in line. Please wait.", skip_user_rate_limit=True)
+                await self.send_response(message, f"⏳ I'm a busy bot right now. You are number {self._queue.qsize() + 1} in line...", skip_user_rate_limit=True)
             self.logger.info("SlopCommand.execute: finished notifying user")
         else:
             self.logger.info("SlopCommand.execute: lock is not locked, sending working message")
@@ -152,6 +157,105 @@ class SlopCommand(BaseCommand):
             return False
         return self.enabled
 
+    async def _process_message(self, message: MeshMessage, question: str, conversation_key: str):
+        """Process a single message. Core logic extracted for testability."""
+        previous_response_id = self._response_ids.get(conversation_key)
+        self.logger.info(f"Conversation key: {conversation_key}, previous_response_id: {previous_response_id}")
+
+        try:
+            client = openai.AsyncOpenAI(
+                base_url=self.endpoint,
+                api_key=self.api_key,
+                timeout=45.0,
+            )
+
+            compacted_context = self._compacted_contexts.pop(conversation_key, None)
+            if compacted_context:
+                question = f"Context: {compacted_context}\n\nQuestion: {question}\n\n"
+                previous_response_id = None
+                self.logger.info(f"Added compacted context to question")
+
+            self.logger.info(f"Asking question: {question} | API Type: {self.api_type} | Model: {self.model}")
+
+            if self.api_type == "responses":
+                if not hasattr(client, 'responses'):
+                    self.logger.error(f"Responses API not available. OpenAI version: {openai.__version__ if hasattr(openai, '__version__') else 'unknown'}")
+                    await self.send_response(message, "Responses API not available. Update openai library.", skip_user_rate_limit=True)
+                    return
+                try:
+                    extra_kwargs = {}
+                    if self._supports_max_completion_tokens:
+                        extra_kwargs["max_completion_tokens"] = self.max_tokens
+                    response = await client.responses.create(
+                        model=self.model,
+                        instructions=self.instructions,
+                        input=[{"type": "message", "role": "user", "content": f"[{message.sender_id}]: {question}", "name": message.sender_id}],
+                        **({"previous_response_id": previous_response_id} if previous_response_id else {}),
+                        **extra_kwargs,
+                    )
+                except TypeError as e:
+                    if "max_completion_tokens" in str(e):
+                        self.logger.warning(f"LM Studio doesn't support max_completion_tokens, disabling")
+                        self._supports_max_completion_tokens = False
+
+                        response = await client.responses.create(
+                            model=self.model,
+                            instructions=self.instructions,
+                            input=[{"type": "message", "role": "user", "content": f"[{message.sender_id}]: {question}", "name": message.sender_id}],
+                            **({"previous_response_id": previous_response_id} if previous_response_id else {}),
+                        )
+                    else:
+                        raise
+
+                if hasattr(response, 'id') and response.id:
+                    self.logger.info(f"Received response_id: {response.id}")
+                    self._response_ids[conversation_key] = response.id
+                else:
+                    self.logger.warning(f"No id in response. Response: {response}")
+
+                response_text = response.output[0].content[0].text
+                total_tokens = hasattr(response, 'usage') and getattr(response.usage, 'total_tokens', 0) or 0
+                self.logger.info(f"Received response: {response_text} | Total tokens: {total_tokens}")
+            else:
+                chat_completion = await client.chat.completions.create(
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": question,
+                        }
+                    ],
+                    model=self.model,
+                    max_completion_tokens=self.max_tokens,
+                )
+                response_text = chat_completion.choices[0].message.content
+                total_tokens = 0
+
+            parsed = self._parse_response(response_text)
+            response_to_send = parsed["message"]
+
+            if parsed.get("more", {}).get("topics"):
+                topics = parsed["topics"]
+                response_to_send += f" | {', '.join(topics[:3])}"
+            
+            max_len = self.get_max_message_length(message)
+            if len(response_to_send) > max_len:
+                response_to_send = response_to_send[:max_len].rsplit(' ', 1)[0] + "..."
+
+            await self.send_response(message, response_to_send, skip_user_rate_limit=True)
+
+            if self.api_type == "responses" and total_tokens >= self.compact_threshold_tokens and self.compact_threshold_tokens > 0:
+                self._compacted_contexts[conversation_key] = "Compacting conversation, please wait..."
+                self.logger.info(f"Token count {total_tokens} exceeds threshold {self.compact_threshold_tokens}, compacting conversation")
+                compacted_text = await self._compact_conversation(client, previous_response_id)
+                del self._response_ids[conversation_key]
+                if compacted_text:
+                    self._compacted_contexts[conversation_key] = compacted_text
+                    self.logger.info(f"Stored compacted context for conversation {conversation_key}")
+
+        except Exception as e:
+            self.logger.error(f"Error in slop command: {e}", exc_info=True)
+            await self.send_response(message, "Sorry, I couldn't get a response from the AI.", skip_user_rate_limit=True)
+
     async def _process_queue(self):
         self.logger.info("SlopCommand._process_queue worker started")
         while True:
@@ -162,109 +266,9 @@ class SlopCommand(BaseCommand):
 
                 async with self._lock:
                     self.logger.info("SlopCommand._process_queue: lock acquired")
-                    # Execution already recorded in execute() method to prevent cooldown issues
-                    # self.record_execution(message.sender_id) 
-
-                    if not is_dm:
-                        self._active_conversations.add(conversation_key)
-
-                    previous_response_id = self._response_ids.get(conversation_key)
-                    self.logger.info(f"Conversation key: {conversation_key}, previous_response_id: {previous_response_id}")
-
-                    try:
-                        client = openai.AsyncOpenAI(
-                            base_url=self.endpoint,
-                            api_key=self.api_key,
-                            timeout=45.0,
-                        )
-
-                        compacted_context = self._compacted_contexts.pop(conversation_key, None)
-                        if compacted_context:
-                            question = f"New question: {question}\n\nContext: {compacted_context}\n\n"
-                            previous_response_id = None  # Clear previous response ID when using compacted context
-                            self.logger.info(f"Added compacted context to question")
-
-                        self.logger.info(f"Asking question: {question} | API Type: {self.api_type} | Model: {self.model}")
-
-                        if self.api_type == "responses":
-                            if not hasattr(client, 'responses'):
-                                self.logger.error(f"Responses API not available. OpenAI version: {openai.__version__ if hasattr(openai, '__version__') else 'unknown'}")
-                                await self.send_response(message, "Responses API not available. Update openai library.", skip_user_rate_limit=True)
-                                continue
-                            try:
-                                extra_kwargs = {}
-                                if self._supports_max_completion_tokens:
-                                    extra_kwargs["max_completion_tokens"] = self.max_tokens
-                                response = await client.responses.create(
-                                    model=self.model,
-                                    instructions=self.instructions,
-                                    input=[{"type": "message", "role": "user", "content": f"[{message.sender_id}]: {question}", "name": message.sender_id}],
-                                    **({"previous_response_id": previous_response_id} if previous_response_id else {}),
-                                    **extra_kwargs,
-                                )
-                            except TypeError as e:
-                                if "max_completion_tokens" in str(e):
-                                    self.logger.warning(f"LM Studio doesn't support max_completion_tokens, disabling")
-                                    self._supports_max_completion_tokens = False
-
-                                    response = await client.responses.create(
-                                        model=self.model,
-                                        instructions=self.instructions,
-                                        input=[{"type": "message", "role": "user", "content": f"[{message.sender_id}]: {question}", "name": message.sender_id}],
-                                        **({"previous_response_id": previous_response_id} if previous_response_id else {}),
-                                    )
-                                else:
-                                    raise
-
-                            if hasattr(response, 'id') and response.id:
-                                self.logger.info(f"Received response_id: {response.id}")
-                                self._response_ids[conversation_key] = response.id
-                            else:
-                                self.logger.warning(f"No id in response. Response: {response}")
-
-                            response_text = response.output[0].content[0].text
-                            total_tokens = hasattr(response, 'usage') and getattr(response.usage, 'total_tokens', 0) or 0
-                            self.logger.info(f"Received response: {response_text} | Total tokens: {total_tokens}")
-                        else:
-                            chat_completion = await client.chat.completions.create(
-                                messages=[
-                                    {
-                                        "role": "user",
-                                        "content": question,
-                                    }
-                                ],
-                                model=self.model,
-                                max_completion_tokens=self.max_tokens,
-                            )
-                            response_text = chat_completion.choices[0].message.content
-                            total_tokens = 0
-
-                        parsed = self._parse_response(response_text)
-                        response_to_send = parsed["message"]
-
-                        if parsed.get("more", {}).get("topics"):
-                            topics = parsed["topics"]
-                            response_to_send += f" | {', '.join(topics[:3])}"
-                        
-                        max_len = self.get_max_message_length(message)
-                        if len(response_to_send) > max_len:
-                            response_to_send = response_to_send[:max_len].rsplit(' ', 1)[0] + "..."
-
-                        await self.send_response(message, response_to_send, skip_user_rate_limit=True)
-
-                        if self.api_type == "responses" and total_tokens >= self.compact_threshold_tokens and self.compact_threshold_tokens > 0:
-                            self.logger.info(f"Token count {total_tokens} exceeds threshold {self.compact_threshold_tokens}, compacting conversation")
-                            compacted_text = await self._compact_conversation(client, previous_response_id)
-                            if compacted_text:
-                                self._compacted_contexts[conversation_key] = compacted_text
-                                self.logger.info(f"Stored compacted context for conversation {conversation_key}")
-
-                    except Exception as e:
-                        self.logger.error(f"Error in slop command: {e}", exc_info=True)
-                        await self.send_response(message, "Sorry, I couldn't get a response from the AI.", skip_user_rate_limit=True)
-                    finally:
-                        self.logger.info("SlopCommand._process_queue: lock released")
-                        self._queue.task_done()
+                    await self._process_message(message, question, conversation_key)
+                    self.logger.info("SlopCommand._process_queue: lock released")
+                    self._queue.task_done()
             except Exception as e:
                 self.logger.error(f"Error in _process_queue worker: {e}", exc_info=True)
 
@@ -298,7 +302,7 @@ class SlopCommand(BaseCommand):
                     extra_kwargs["max_completion_tokens"] = self.max_tokens
                 response = await client.responses.create(
                     model=self.model,
-                    instructions="Compact the conversation into a format you will be able to understand later on. Focus on keeping important details and context that would help you answer future questions related to this conversation. Be concise but retain key information and style.",
+                    instructions="Compact the conversation into a format you will be able to understand later on. Focus on keeping important details and context that would help you answer future questions related to this conversation. Be concise but retain key information and style. Maximum of 70 words.",
                     input=[
                         {"type": "message", "role": "user", "content": f"Compact the conversation"}
                     ],
