@@ -126,7 +126,7 @@ class SlopCommand(BaseCommand):
             self.logger.info("SlopCommand.execute: finished notifying user")
         else:
             self.logger.info("SlopCommand.execute: lock is not locked, sending working message")
-            await self.send_response(message, "Working on your request...", skip_user_rate_limit=True)
+            await self.send_response(message, "💭...", skip_user_rate_limit=True)
             self.logger.info("SlopCommand.execute: finished sending working message")
 
         await self._queue.put((message, question, conversation_key, is_dm))
