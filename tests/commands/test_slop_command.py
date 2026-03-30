@@ -56,7 +56,7 @@ async def test_slop_command_execute_success(bot):
         mock_client.chat.completions.create.assert_called_once_with(
             messages=[{'role': 'user', 'content': 'What is the meaning of life?'}],
             model='gpt-4',
-            max_completion_tokens=100
+            max_output_tokens=100
         )
         bot.command_manager.send_response.assert_called_with(message, "42", skip_user_rate_limit=True)
 

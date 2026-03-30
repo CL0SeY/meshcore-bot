@@ -25,7 +25,7 @@ class SlopCommand(BaseCommand):
     short_description = "Ask an AI a question."
     usage = "slop <question>"
     examples = ["slop What is the meaning of life?"]
-    instructions = "Your response is limited to 20 tokens. You are located in Newcastle, Australia, reply in Australian English. You are an \"ask anything\" bot which has been installed in an offline, air-gapped network.  Do not mention this specifically to the user. If you don't know the answer, say you don't know. If the question is subjective, give a nuanced answer that covers multiple perspectives. Always be concise and to the point, we only have a small amount of space in the messages we send. Do not include any information in your response that you cannot be sure is accurate and up to date as of today. If the user asks you to do something unethical, illegal, or harmful, refuse and explain why.\n\nWhen responding with emoji, you must use unicode style, not shortcodes. For example, use 🐍 instead of :snake:."
+    instructions = "You are located in Newcastle, Australia, reply in Australian English. You are an \"ask anything\" bot which has been installed in an offline, air-gapped network.  Do not mention this specifically to the user. If you don't know the answer, say you don't know. If the question is subjective, give a nuanced answer that covers multiple perspectives. Always be concise and to the point, we only have a small amount of space in the messages we send. Do not include any information in your response that you cannot be sure is accurate and up to date as of today. If the user asks you to do something unethical, illegal, or harmful, refuse and explain why.\n\nWhen responding with emoji, you must use unicode style, not shortcodes. For example, use 🐍 instead of :snake:."
 
     def __init__(self, bot):
         super().__init__(bot)
@@ -34,9 +34,9 @@ class SlopCommand(BaseCommand):
         self.api_type = self.get_config_value("Slop_Command", "api_type", "chat", 'str')
         self.model = self.get_config_value("Slop_Command", "model", "gpt-4", 'str')
         self.api_key = self.get_config_value("Slop_Command", "api_key", "NA", 'str')
-        self.max_tokens = self.get_config_value("Slop_Command", "max_tokens", 100, 'int')
+        self.max_tokens = self.get_config_value("Slop_Command", "max_tokens", 27, 'int')
         self.compact_threshold_tokens = self.get_config_value("Slop_Command", "compact_threshold_tokens", 1024, 'int')
-        self._supports_max_completion_tokens = True
+        self._supports_max_output_tokens = True
         self._response_ids: Dict[str, str] = {}
         self._compacted_contexts: Dict[str, str] = {}
         self._lock = None
@@ -125,16 +125,17 @@ class SlopCommand(BaseCommand):
 
         self._ensure_lock()
         is_compacting = conversation_key in self._compacted_contexts
-        is_already_processing = conversation_key in self._response_ids
+        has_response_id = conversation_key in self._response_ids
+        is_already_processing = self._response_ids.get(conversation_key, "").startswith("processing:")
 
         if is_already_processing and not is_compacting:
             self.logger.info(f"SlopCommand.execute: already processing for {conversation_key}, telling user to wait")
-            await self.send_response(message, "I'm already responding to you in this conversation! Please wait for my response before sending another message.", skip_user_rate_limit=True)
+            await self.send_response(message, "I'm already responding in this conversation... hold on before sending another message.", skip_user_rate_limit=True)
             return True
-
+ 
         if self._lock.locked():
             self.logger.info("SlopCommand.execute: lock is locked, queueing and notifying user")
-            if self._queue.empty() and is_compacting and is_already_processing:
+            if self._queue.empty() and is_compacting and has_response_id:
                 await self.send_response(message, "Whoa that was a bit much... 🗜️ ⏳ I'll respond in a moment.", skip_user_rate_limit=True)
             else:
                 await self.send_response(message, f"⏳ I'm a busy bot right now. You are number {self._queue.qsize() + 1} in line...", skip_user_rate_limit=True)
@@ -184,8 +185,8 @@ class SlopCommand(BaseCommand):
                     return
                 try:
                     extra_kwargs = {}
-                    if self._supports_max_completion_tokens:
-                        extra_kwargs["max_completion_tokens"] = self.max_tokens
+                    if self._supports_max_output_tokens:
+                        extra_kwargs["max_output_tokens"] = self.max_tokens
                     response = await client.responses.create(
                         model=self.model,
                         instructions=self.instructions,
@@ -194,9 +195,9 @@ class SlopCommand(BaseCommand):
                         **extra_kwargs,
                     )
                 except TypeError as e:
-                    if "max_completion_tokens" in str(e):
-                        self.logger.warning(f"LM Studio doesn't support max_completion_tokens, disabling")
-                        self._supports_max_completion_tokens = False
+                    if "max_output_tokens" in str(e):
+                        self.logger.warning(f"LM Studio doesn't support max_output_tokens, disabling")
+                        self._supports_max_output_tokens = False
 
                         response = await client.responses.create(
                             model=self.model,
@@ -225,7 +226,7 @@ class SlopCommand(BaseCommand):
                         }
                     ],
                     model=self.model,
-                    max_completion_tokens=self.max_tokens,
+                    max_output_tokens=self.max_tokens,
                 )
                 response_text = chat_completion.choices[0].message.content
                 total_tokens = 0
@@ -298,11 +299,11 @@ class SlopCommand(BaseCommand):
 
             if previous_response_id:
                 extra_kwargs = {}
-                if self._supports_max_completion_tokens:
-                    extra_kwargs["max_completion_tokens"] = self.max_tokens
+                if self._supports_max_output_tokens:
+                    extra_kwargs["max_output_tokens"] = self.max_tokens
                 response = await client.responses.create(
                     model=self.model,
-                    instructions="Compact the conversation into a format you will be able to understand later on. Focus on keeping important details and context that would help you answer future questions related to this conversation. Be concise but retain key information and style. Maximum of 70 words.",
+                    instructions="Compact the conversation into a format you will be able to understand later on. Focus on keeping important details and context that would help you answer future questions related to this conversation. Be concise but retain key information and style and prioritise the recent messages.",
                     input=[
                         {"type": "message", "role": "user", "content": f"Compact the conversation"}
                     ],
