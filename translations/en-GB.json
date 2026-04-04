@@ -331,13 +331,13 @@
       "path_prefix": "📡 Path: {path_string}",
       "direct_connection": "📡 Direct connection (0 hops)",
       "node_format": "{node_id}: {name}",
-      "node_unknown": "{node_id}: Unknown",
+      "node_unknown": "{node_id}: ?",
       "node_collision": "{node_id}: {matches} repeaters",
       "node_geographic": "{node_id}: {name} {confidence}",
       "continuation_start": "...\n{line}",
       "continuation_end": "\n...",
       "truncation": "...",
-      "unknown_name": "Unknown"
+      "unknown_name": "?"
     },
     "prefix": {
       "description": "Look up repeaters by two-character prefix (e.g., 'prefix 1A')",
