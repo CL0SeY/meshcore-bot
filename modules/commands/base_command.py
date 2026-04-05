@@ -870,9 +870,13 @@ class BaseCommand(ABC):
         Uses message.routing_info when present (multi-byte path, direct) for path part.
         """
         path_part = self.get_path_display_string(message)
-        snr_info = f"SNR: {message.snr or 'Unknown'} dB"
-        rssi_info = f"RSSI: {message.rssi or 'Unknown'} dBm"
-        connection_info = f"{path_part} | {snr_info} | {rssi_info}"
+
+        if path_part == "Direct":
+            snr_info = f"SNR: {message.snr or 'Unknown'} dB"
+            rssi_info = f"RSSI: {message.rssi or 'Unknown'} dBm"
+            connection_info = f"{path_part} | {snr_info} | {rssi_info}"
+        else:
+            connection_info = f"{path_part}"
         return connection_info
     
     def format_timestamp(self, message: MeshMessage) -> str:
