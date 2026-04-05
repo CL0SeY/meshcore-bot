@@ -18,7 +18,7 @@ class PathCommand(BaseCommand):
     
     # Plugin metadata
     name = "path"
-    keywords = ["path", "decode", "route"]
+    keywords = ["path", "decode", "route", "epath", "ep"]
     description = "Decode hex path data to show which repeaters were involved in message routing"
     requires_dm = False
     cooldown_seconds = 1
@@ -204,19 +204,32 @@ class PathCommand(BaseCommand):
         content = message.content.strip()
         parts = content.split()
         
+        # Check if epath variant
+        is_epath = False
+        if parts:
+            first_word = parts[0].lower()
+            if first_word.startswith('!'):
+                first_word = first_word[1:]
+            if first_word in ['epath', 'ep']:
+                is_epath = True
+        
         if len(parts) < 2:
             # No arguments provided - try to extract path from current message
-            response = await self._extract_path_from_recent_messages()
+            response = await self._extract_path_from_recent_messages(is_epath=is_epath)
         else:
             # Extract path data from the command
             path_input = " ".join(parts[1:])
-            response = await self._decode_path(path_input)
+            response = await self._decode_path(path_input, is_epath=is_epath)
         
+        # Prefix with @[username] for epath variant if sender_id is available
+        if is_epath and getattr(message, 'sender_id', None):
+            response = f"@[{message.sender_id}]\n{response}"
+            
         # Send the response (may be split into multiple messages if long)
         await self._send_path_response(message, response)
         return True
     
-    async def _decode_path(self, path_input: str) -> str:
+    async def _decode_path(self, path_input: str, is_epath: bool = False) -> str:
         """Decode hex path data to repeater names.
         Comma-separated tokens infer hop size (2, 4, or 6 hex chars per node).
         Otherwise uses bot.prefix_hex_chars via parse_path_string().
@@ -248,7 +261,7 @@ class PathCommand(BaseCommand):
 
             self.logger.info(f"Decoding path with {len(node_ids)} nodes: {','.join(node_ids)}")
             repeater_info = await self._lookup_repeater_names(node_ids)
-            return self._format_path_response(node_ids, repeater_info)
+            return self._format_path_response(node_ids, repeater_info, is_epath=is_epath)
 
         except Exception as e:
             self.logger.error(f"Error decoding path: {e}")
@@ -1606,7 +1619,84 @@ class PathCommand(BaseCommand):
         
         return None, 0.0, None
     
-    def _format_path_response(self, node_ids: List[str], repeater_info: Dict[str, Dict[str, Any]]) -> str:
+    def _extract_emoji(self, name: str) -> str:
+        """Extract a single emoji from a node name based on priority:
+        1. Start of name
+        2. End of name
+        3. First emoji elsewhere
+        """
+        if not name or name == self.translate('commands.path.unknown_name'):
+            return "❓"
+            
+        import unicodedata
+        
+        def is_emoji(c: str) -> bool:
+            category = unicodedata.category(c)
+            # So = Symbol, other; Sk = Symbol, modifier; Sc = Symbol, currency
+            return (category in ('So', 'Sk', 'Sc') or 
+                    0x2600 <= ord(c) <= 0x27BF or 
+                    ord(c) >= 0x1F000 or 
+                    ord(c) == 0x200D or 
+                    ord(c) == 0xFE0F)
+                    
+        def extract_single_emoji_at(text: str, start_idx: int) -> str:
+            result = ""
+            i = start_idx
+            while i < len(text):
+                c = text[i]
+                if not is_emoji(c):
+                    break
+                result += c
+                if i + 1 < len(text):
+                    next_c = text[i+1]
+                    next_ord = ord(next_c)
+                    is_modifier = next_ord == 0xFE0F or next_ord == 0x200D or (0x1F3FB <= next_ord <= 0x1F3FF)
+                    is_flag_part = (0x1F1E6 <= ord(c) <= 0x1F1FF) and (0x1F1E6 <= next_ord <= 0x1F1FF)
+                    if not is_modifier and not is_flag_part and ord(c) != 0x200D:
+                        break
+                i += 1
+            return result
+
+        emojis = []
+        i = 0
+        while i < len(name):
+            if is_emoji(name[i]):
+                e = extract_single_emoji_at(name, i)
+                emojis.append((e, i))
+                i += len(e)
+            else:
+                i += 1
+                
+        if not emojis:
+            return "📄"
+            
+        primary_emoji = emojis[0][0]
+        found_primary = False
+            
+        # Priority 1: Emoji at the start (ignoring leading spaces)
+        first_non_space = len(name) - len(name.lstrip())
+        for e, idx in emojis:
+            if idx == first_non_space:
+                primary_emoji = e
+                found_primary = True
+                break
+                
+        if not found_primary:
+            # Priority 2: Emoji at the end (ignoring trailing spaces)
+            trailing_spaces = len(name) - len(name.rstrip())
+            end_idx = len(name) - trailing_spaces
+            for e, idx in reversed(emojis):
+                if idx + len(e) == end_idx:
+                    primary_emoji = e
+                    found_primary = True
+                    break
+                    
+        if "🌉" in name and primary_emoji != "🌉":
+            return primary_emoji + "🌉"
+            
+        return primary_emoji
+
+    def _format_path_response(self, node_ids: List[str], repeater_info: Dict[str, Dict[str, Any]], is_epath: bool = False) -> str:
         """Format the path decode response
         
         Maintains the order of repeaters as they appear in the path (first to last)
@@ -1617,20 +1707,24 @@ class PathCommand(BaseCommand):
         # Process nodes in path order (first to last as message traveled)
         for node_id in node_ids:
             info = repeater_info.get(node_id, {})
+            display_node_id = node_id.lower()
             
             if info.get('found', False):
                 if info.get('collision', False):
                     # Multiple repeaters with same prefix
                     matches = info.get('matches', 0)
-                    line = self.translate('commands.path.node_collision', node_id=node_id, matches=matches)
+                    line = self.translate('commands.path.node_collision', node_id=display_node_id, matches=matches)
                 elif info.get('geographic_guess', False) or info.get('graph_guess', False):
                     # Geographic or graph-based selection
                     name = info.get('name', self.translate('commands.path.unknown_name'))
                     confidence = info.get('confidence', 0.0)
                     
-                    # Truncate name if too long
-                    truncation = self.translate('commands.path.truncation')
-                    name = self._truncate_to_byte_length(name, 20, truncation)
+                    if is_epath:
+                        name = self._extract_emoji(name)
+                    else:
+                        # Truncate name if too long
+                        truncation = self.translate('commands.path.truncation')
+                        name = self._truncate_to_byte_length(name, 20, truncation)
                     
                     # Add confidence indicator
                     if confidence >= 0.9:
@@ -1640,25 +1734,37 @@ class PathCommand(BaseCommand):
                     else:
                         confidence_indicator = self.low_confidence_symbol
                     
-                    # Use geographic translation key for backward compatibility, or add graph-specific if needed
-                    line = self.translate('commands.path.node_geographic', node_id=node_id, name=name, confidence=confidence_indicator)
+                    if is_epath:
+                        # Use geographic translation key for backward compatibility, or add graph-specific if needed
+                        line = self.translate('commands.path.node_emoji_geographic', node_id=display_node_id, name=name, confidence=confidence_indicator)
+                    else:
+                        # Use geographic translation key for backward compatibility, or add graph-specific if needed
+                        line = self.translate('commands.path.node_geographic', node_id=display_node_id, name=name, confidence=confidence_indicator)
                 else:
                     # Single repeater found
                     name = info.get('name', self.translate('commands.path.unknown_name'))
                     
-                    truncation = self.translate('commands.path.truncation')
-                    name = self._truncate_to_byte_length(name, 27, truncation)
-                    
-                    line = self.translate('commands.path.node_format', node_id=node_id, name=name)
+                    if is_epath:
+                        emoji = self._extract_emoji(name)
+                        line = self.translate('commands.path.node_emoji_format', node_id=display_node_id, emoji=emoji)
+                    else:
+                        truncation = self.translate('commands.path.truncation')
+                        name = self._truncate_to_byte_length(name, 27, truncation)
+                        line = self.translate('commands.path.node_format', node_id=display_node_id, name=name)
             else:
                 # Unknown repeater
-                line = self.translate('commands.path.node_unknown', node_id=node_id)
-            
+                if is_epath:
+                    line = self.translate('commands.path.node_emoji_unknown', node_id=display_node_id)
+                else:
+                    line = self.translate('commands.path.node_unknown', node_id=display_node_id)
+
             line = self._truncate_to_byte_length(line, 150)
             
             lines.append(line)
         
         # Return all lines - let _send_path_response handle the splitting
+        if is_epath:
+            return self.translate('commands.path.node_emoji_delimiter').join(lines)
         return "\n".join(lines)
     
     async def _send_path_response(self, message: MeshMessage, response: str):
@@ -1713,7 +1819,7 @@ class PathCommand(BaseCommand):
             if current_message:
                 await self.send_response(message, current_message, skip_user_rate_limit=True)
     
-    async def _extract_path_from_recent_messages(self) -> str:
+    async def _extract_path_from_recent_messages(self, is_epath: bool = False) -> str:
         """Extract path from the current message's path information (same as test command).
         Prefers already-extracted routing_info.path_nodes when present (multi-byte path support).
         """
@@ -1734,7 +1840,7 @@ class PathCommand(BaseCommand):
                     node_ids = [n.upper() for n in path_nodes]
                     self.logger.info(f"Decoding path from routing_info with {len(node_ids)} nodes: {','.join(node_ids)}")
                     repeater_info = await self._lookup_repeater_names(node_ids)
-                    return self._format_path_response(node_ids, repeater_info)
+                    return self._format_path_response(node_ids, repeater_info, is_epath=is_epath)
 
             # Fallback: parse message.path string (e.g. no routing_info or legacy path)
             if not msg.path:
@@ -1750,10 +1856,10 @@ class PathCommand(BaseCommand):
                 path_part = path_string
 
             if ',' in path_part:
-                return await self._decode_path(path_part)
+                return await self._decode_path(path_part, is_epath=is_epath)
             hex_pattern = rf'[0-9a-fA-F]{{{getattr(self.bot, "prefix_hex_chars", 2)}}}'
             if re.search(hex_pattern, path_part):
-                return await self._decode_path(path_part)
+                return await self._decode_path(path_part, is_epath=is_epath)
             return self.translate('commands.path.path_prefix', path_string=path_string)
 
         except Exception as e:
