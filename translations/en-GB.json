@@ -332,7 +332,7 @@
       "direct_connection": "📡 Direct connection (0 hops)",
       "node_emoji_delimiter": "->",
       "node_emoji_format": "{node_id}{emoji}",
-      "node_emoji_unknown": "{node_id}?",
+      "node_emoji_unknown": "{node_id}",
       "node_emoji_geographic": "{node_id}{emoji}{confidence}",
       "node_format": "{node_id}: {name}",
       "node_unknown": "{node_id}: ?",
