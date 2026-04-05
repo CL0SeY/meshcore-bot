@@ -1668,7 +1668,7 @@ class PathCommand(BaseCommand):
                 i += 1
                 
         if not emojis:
-            return "📄"
+            return ""
             
         primary_emoji = emojis[0][0]
         found_primary = False
@@ -1736,7 +1736,7 @@ class PathCommand(BaseCommand):
                     
                     if is_epath:
                         # Use geographic translation key for backward compatibility, or add graph-specific if needed
-                        line = self.translate('commands.path.node_emoji_geographic', node_id=display_node_id, name=name, confidence=confidence_indicator)
+                        line = self.translate('commands.path.node_emoji_geographic', node_id=display_node_id, emoji=name, confidence=confidence_indicator)
                     else:
                         # Use geographic translation key for backward compatibility, or add graph-specific if needed
                         line = self.translate('commands.path.node_geographic', node_id=display_node_id, name=name, confidence=confidence_indicator)
