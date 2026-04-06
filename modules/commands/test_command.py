@@ -140,6 +140,9 @@ class TestCommand(BaseCommand):
         Returns:
             Optional[str]: The configured response format string, or None if not set.
         """
+        if getattr(self, 'epath_mode', False):
+            return None
+            
         if self.bot.config.has_section('Keywords'):
             format_str = self.bot.config.get('Keywords', 'test', fallback=None)
             return self._strip_quotes_from_config(format_str) if format_str else None
@@ -732,7 +735,8 @@ class TestCommand(BaseCommand):
         if getattr(self, 'epath_mode', False):
             path_cmd = self.bot.command_manager.get_plugin_by_name("path")
             if path_cmd:
-                content = message.content.strip()
+                # Clean content to remove control characters and normalize whitespace
+                content = self.clean_content(message.content)
                 prefix = '!' if content.startswith('!') else ''
                 if prefix:
                     content = content[1:].strip()
