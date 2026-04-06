@@ -1173,6 +1173,8 @@ enabled = true
 
 [Test_Command]
 enabled = true
+# When set to true, requests for "test" or "t" will be handled as if the user requested "epath"
+# epath_mode = false
 # channels =
 
 [Trace_Command]

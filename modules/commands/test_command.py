@@ -34,6 +34,7 @@ class TestCommand(BaseCommand):
     def __init__(self, bot):
         super().__init__(bot)
         self.test_enabled = self.get_config_value('Test_Command', 'enabled', fallback=True, value_type='bool')
+        self.epath_mode = self.get_config_value('Test_Command', 'epath_mode', fallback=False, value_type='bool')
         # Get bot location from config for geographic proximity calculations
         self.geographic_guessing_enabled = False
         self.bot_latitude = None
@@ -728,6 +729,27 @@ class TestCommand(BaseCommand):
         Returns:
             bool: True if execution was successful.
         """
+        if getattr(self, 'epath_mode', False):
+            path_cmd = self.bot.command_manager.get_plugin_by_name("path")
+            if path_cmd:
+                content = message.content.strip()
+                prefix = '!' if content.startswith('!') else ''
+                if prefix:
+                    content = content[1:].strip()
+                
+                if content.lower() == 'test':
+                    message.content = prefix + 'epath'
+                elif content.lower() == 't':
+                    message.content = prefix + 'epath'
+                elif content.lower().startswith('test '):
+                    message.content = prefix + 'epath ' + content[5:].strip()
+                elif content.lower().startswith('t '):
+                    message.content = prefix + 'epath ' + content[2:].strip()
+                else:
+                    message.content = prefix + 'epath'
+                    
+                return await path_cmd.execute(message)
+
         # Store the current message for use in location lookups
         self._current_message = message
         return await self.handle_keyword_match(message)

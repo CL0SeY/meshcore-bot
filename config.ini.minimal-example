@@ -268,6 +268,7 @@ enabled = true
 # true: Test command is available (responds to 'test' or 't')
 # false: Test command is disabled
 enabled = true
+# epath_mode = false
 
 [Path_Command]
 # Enable or disable the path command
