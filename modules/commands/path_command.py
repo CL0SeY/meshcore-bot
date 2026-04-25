@@ -1671,6 +1671,7 @@ class PathCommand(BaseCommand):
             return ""
             
         primary_emoji = emojis[0][0]
+        secondary_emoji = None
         found_primary = False
             
         # Priority 1: Emoji at the start (ignoring leading spaces)
@@ -1681,20 +1682,21 @@ class PathCommand(BaseCommand):
                 found_primary = True
                 break
                 
-        if not found_primary:
-            # Priority 2: Emoji at the end (ignoring trailing spaces)
-            trailing_spaces = len(name) - len(name.rstrip())
-            end_idx = len(name) - trailing_spaces
-            for e, idx in reversed(emojis):
-                if idx + len(e) == end_idx:
-                    primary_emoji = e
-                    found_primary = True
-                    break
-                    
-        if "🌉" in name and primary_emoji != "🌉":
-            return primary_emoji + "🌉"
-            
-        return primary_emoji
+        # Priority 2: Emoji at the end (ignoring trailing spaces)
+        trailing_spaces = len(name) - len(name.rstrip())
+        end_idx = len(name) - trailing_spaces
+        for e, idx in reversed(emojis):
+            if idx + len(e) == end_idx:
+                secondary_emoji = e
+                break
+
+        if not secondary_emoji:
+            return primary_emoji
+        
+        if secondary_emoji != primary_emoji:
+            return primary_emoji + secondary_emoji
+
+        return secondary_emoji
 
     def _format_path_response(self, node_ids: List[str], repeater_info: Dict[str, Dict[str, Any]], is_epath: bool = False) -> str:
         """Format the path decode response
