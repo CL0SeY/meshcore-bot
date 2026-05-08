@@ -210,7 +210,7 @@ class PathCommand(BaseCommand):
             first_word = parts[0].lower()
             if first_word.startswith('!'):
                 first_word = first_word[1:]
-            if first_word in ['epath', 'ep']:
+            if first_word in ['epath', 'ep', 'p']:
                 is_epath = True
         
         if len(parts) < 2:
@@ -225,6 +225,7 @@ class PathCommand(BaseCommand):
         if is_epath and getattr(message, 'sender_id', None):
             response = f"@[{message.sender_id}]\n{response}"
             
+
         # Send the response (may be split into multiple messages if long)
         await self._send_path_response(message, response)
         return True
