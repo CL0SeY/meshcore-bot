@@ -209,13 +209,13 @@ class PathCommand(BaseCommand):
         )
 
     async def _decode_node_ids(
-        self, node_ids: list[str], routing_info: Optional[dict[str, Any]] = None
+        self, node_ids: list[str], routing_info: Optional[dict[str, Any]] = None, is_epath: bool = False
     ) -> str:
         self.logger.info(f"Decoding path with {len(node_ids)} nodes: {','.join(node_ids)}")
         if not self._should_resolve_repeater_names(node_ids, routing_info):
             return self._format_repeater_resolution_deferred(node_ids)
         repeater_info = await self._lookup_repeater_names(node_ids)
-        return self._format_path_response(node_ids, repeater_info)
+        return self._format_path_response(node_ids, repeater_info, is_epath=is_epath)
 
     def can_execute(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
         """Check if this command can be executed with the given message.
@@ -314,9 +314,7 @@ class PathCommand(BaseCommand):
             if not node_ids:
                 return self.translate('commands.path.no_valid_hex')
 
-            self.logger.info(f"Decoding path with {len(node_ids)} nodes: {','.join(node_ids)}")
-            repeater_info = await self._lookup_repeater_names(node_ids)
-            return self._format_path_response(node_ids, repeater_info, is_epath=is_epath)
+            return await self._decode_node_ids(node_ids, is_epath=is_epath)
 
         except Exception as e:
             self.logger.error(f"Error decoding path: {e}")
@@ -1882,9 +1880,7 @@ class PathCommand(BaseCommand):
                 path_nodes = routing_info.get('path_nodes', [])
                 if path_nodes:
                     node_ids = [n.upper() for n in path_nodes]
-                    self.logger.info(f"Decoding path from routing_info with {len(node_ids)} nodes: {','.join(node_ids)}")
-                    repeater_info = await self._lookup_repeater_names(node_ids)
-                    return self._format_path_response(node_ids, repeater_info, is_epath=is_epath)
+                    return await self._decode_node_ids(node_ids, is_epath=is_epath)
 
             # Fallback: parse message.path string (e.g. no routing_info or legacy path)
             if not msg.path:
