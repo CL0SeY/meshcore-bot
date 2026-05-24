@@ -2855,11 +2855,7 @@ class MessageHandler:
             if not contact_data:
                 self.logger.warning("NEW_CONTACT event has no payload data")
                 return
-            
-            self.logger.info(f"🔍 NEW_CONTACT EVENT RECEIVED: {event}")
-            self.logger.info(f"📦 Event type: {type(event)}")
-            self.logger.info(f"📦 Event payload: {contact_data}")
-            
+
             # Get contact details
             contact_name = contact_data.get('name', contact_data.get('adv_name', 'Unknown'))
             public_key = contact_data.get('public_key', '')
@@ -2920,7 +2916,6 @@ class MessageHandler:
                                     }
                                     path_byte_len = routing_info.get('path_byte_length') or (len(path_hex) // 2)
                                     self._update_mesh_graph_from_advert(contact_data, path_hex, path_byte_len, packet_info)
-                                    self.logger.debug(f"Mesh graph: Updated from NEW_CONTACT event for {contact_name} (key: {public_key[:16]}...)")
                                     # Store complete path in observed_paths table
                                     self._store_observed_path(contact_data, path_hex, path_byte_len, 'advert', packet_hash=packet_hash, bytes_per_hop=routing_info.get('bytes_per_hop', 1))
                                 except Exception as e:
