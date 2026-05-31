@@ -28,7 +28,7 @@
     "webviewer": ["webviewer", "web", "viewer", "wv"],
     "cmd": ["cmd", "commands", "komendy"],
     "advert": ["advert"],
-    "multitest": ["multitest", "mt"]
+    "multitest": ["multitest", "mt", "multipath", "mp"]
   },
   "commands": {
     "help": {

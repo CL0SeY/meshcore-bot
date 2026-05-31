@@ -624,14 +624,14 @@ class MultitestCommand(BaseCommand):
 
     # Plugin metadata
     name = "multitest"
-    keywords = ['multitest', 'mt']
+    keywords = ['multitest', 'mt', 'multipath', 'mp']
     description = "Listens for 6 seconds and collects all unique paths from incoming messages"
     category = "meshcore_info"
 
     # Documentation
     short_description = "Listens for 6 seconds and collects all unique paths your incoming messages took to reach the bot"
     usage = "multitest"
-    examples = ["multitest", "mt"]
+    examples = ["multitest", "mt", "multipath", "mp"]
 
     def __init__(self, bot):
         super().__init__(bot)
@@ -741,10 +741,10 @@ class MultitestCommand(BaseCommand):
             if content_lower == keyword or content_lower.startswith(keyword + ' '):
                 return True
 
-        # Check for variants: "mt long", "mt xlong", "multitest long", "multitest xlong"
-        if content_lower.startswith('mt ') or content_lower.startswith('multitest '):
+        # Check for variants: "mt long", "mt xlong", "multitest long", "multitest xlong", etc.
+        if content_lower.startswith('mt ') or content_lower.startswith('multitest ') or content_lower.startswith('mp ') or content_lower.startswith('multipath '):
             parts = content_lower.split()
-            if len(parts) >= 2 and parts[0] in ['mt', 'multitest']:
+            if len(parts) >= 2 and parts[0] in ['mt', 'multitest', 'mp', 'multipath']:
                 variant = parts[1]
                 if variant in ['long', 'xlong']:
                     return True
@@ -1059,6 +1059,9 @@ class MultitestCommand(BaseCommand):
         if not await self.enforce_path_byte_requirement(message, 'Multitest_Command'):
             return True
 
+        # Set outside the lock block so it's in scope for the final response
+        alias_prefix = ""
+
         # Use lock to prevent concurrent execution from interfering
         async with self._get_execution_lock():
             # Check if user already has an active session
@@ -1079,11 +1082,16 @@ class MultitestCommand(BaseCommand):
                 content = content[1:].strip()
 
             content_lower = content.lower()
+
+            # Determine if alias was used (multipath/mp vs multitest/mt)
+            command_stripped = content_lower.split()[0] if content_lower.split() else ''
+            alias_prefix = "multitest:\n" if command_stripped in ['multipath', 'mp'] else ""
+
             listening_duration = 6.0  # Default
-            # Check for variants: "mt long", "mt xlong", "multitest long", "multitest xlong"
-            if content_lower.startswith('mt ') or content_lower.startswith('multitest '):
+            # Check for variants: "mt long", "mt xlong", "multitest long", "multitest xlong", etc.
+            if content_lower.startswith('mt ') or content_lower.startswith('multitest ') or content_lower.startswith('mp ') or content_lower.startswith('multipath '):
                 parts = content_lower.split()
-                if len(parts) >= 2 and parts[0] in ['mt', 'multitest']:
+                if len(parts) >= 2 and parts[0] in ['mt', 'multitest', 'mp', 'multipath']:
                     variant = parts[1]
                     if variant == 'long':
                         listening_duration = 10.0
@@ -1251,8 +1259,8 @@ class MultitestCommand(BaseCommand):
                 self.logger.info(f"Waiting {wait_time:.1f} seconds for rate limiter")
                 await asyncio.sleep(wait_time + 0.1)  # Small buffer
 
-        # Send the response
-        await self.send_response(message, response)
+        # Send the response (prepend alias prefix if multipath/mp was used)
+        await self.send_response(message, alias_prefix + response)
 
         return True
 

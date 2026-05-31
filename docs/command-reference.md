@@ -743,7 +743,7 @@ stats paths
 
 ---
 
-### `multitest` or `mt`
+### `multitest`, `mt`, `multipath`, or `mp`
 
 Listen for 6 seconds and collect all unique paths from incoming messages.
 
@@ -751,6 +751,8 @@ Listen for 6 seconds and collect all unique paths from incoming messages.
 ```
 multitest
 mt
+multipath
+mp
 ```
 
 **Response:** List of all unique routing paths discovered during the 6-second listening period.
