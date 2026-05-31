@@ -7,6 +7,7 @@ Listens for a period of time and collects all unique paths from incoming message
 import asyncio
 import re
 import time
+import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Literal, Optional
@@ -293,7 +294,7 @@ def _format_path_cluster(token_lists: list[list[str]], use_brackets: bool) -> li
         common = ",".join(lcp)
         branch_lines = _format_suffix_branch_lines(suffix_tokens)
         if branch_lines:
-            lines = [f"{common} {_BRANCH_CORNER}"]
+            lines = [f"{common}{_BRANCH_CORNER}"]
             lines.extend(branch_lines)
         else:
             lines = [common]
@@ -328,7 +329,7 @@ def _format_path_cluster_flat(token_lists: list[list[str]], use_brackets: bool) 
         common = ",".join(lcp)
         branch_lines = _format_suffix_branch_lines_flat(suffix_tokens)
         if branch_lines:
-            lines = [f"{common} {_BRANCH_CORNER}"]
+            lines = [f"{common}{_BRANCH_CORNER}"]
             lines.extend(branch_lines)
         else:
             lines = [common]
@@ -385,7 +386,7 @@ def _nested_child_lines(paths: list[list[str]], col: str) -> list[str]:
     head_open = (
         f"{col}{_BRANCH_INTER} {inner}"
         if has_exact
-        else f"{col}{_BRANCH_INTER} {inner} {_BRANCH_CORNER}"
+        else f"{col}{_BRANCH_INTER} {inner}{_BRANCH_CORNER}"
     )
     sub_col = f"{col}{_INDENT_NEST}"
 
@@ -451,7 +452,7 @@ def _nested_format_suffix_lines(suffixes: list[list[str]]) -> list[str]:
             head_open = (
                 f"{_BRANCH_INTER} {main}"
                 if inner_has_exact
-                else f"{_BRANCH_INTER} {main} {_BRANCH_CORNER}"
+                else f"{_BRANCH_INTER} {main}{_BRANCH_CORNER}"
             )
             col = _NEST_PREFIX
             child = _nested_child_lines(cont, col)
@@ -463,7 +464,7 @@ def _nested_format_suffix_lines(suffixes: list[list[str]]) -> list[str]:
     head_open = (
         f"{_BRANCH_INTER} {main}"
         if has_exact
-        else f"{_BRANCH_INTER} {main} {_BRANCH_CORNER}"
+        else f"{_BRANCH_INTER} {main}{_BRANCH_CORNER}"
     )
     col = _NEST_PREFIX
     child = _nested_child_lines(cont, col)
@@ -492,7 +493,7 @@ def _format_path_cluster_nested(token_lists: list[list[str]], use_brackets: bool
             ne_lcp = _longest_common_prefix(nonempty_sfx) if nonempty_sfx else []
             if any(len(t) == 0 for t in suffix_tokens) and len(ne_lcp) == 0:
                 return [f"{_BRANCH_INTER} {common}", *branch_lines]
-            return [f"{common} {_BRANCH_CORNER}", *branch_lines]
+            return [f"{common}{_BRANCH_CORNER}", *branch_lines]
         return [common]
 
     groups: dict[str, list[list[str]]] = defaultdict(list)
@@ -530,6 +531,79 @@ def _parse_condense_paths_mode(raw: object) -> CondensePathsMode:
     if s in ("true", "1", "yes", "flat"):
         return "flat"
     return "flat"
+
+
+def _extract_emoji_from_name(name: str) -> str:
+    """Extract emoji characters from a node name.
+
+    Priority: start of name > end of name > first emoji anywhere.
+    Returns empty string if no emoji found.
+    """
+    if not name:
+        return ""
+
+    def is_emoji(c: str) -> bool:
+        category = unicodedata.category(c)
+        return (category in ('So', 'Sk', 'Sc') or
+                0x2600 <= ord(c) <= 0x27BF or
+                ord(c) >= 0x1F000 or
+                ord(c) == 0x200D or
+                ord(c) == 0xFE0F)
+
+    def extract_single_emoji_at(text: str, start_idx: int) -> str:
+        result = ""
+        i = start_idx
+        while i < len(text):
+            c = text[i]
+            if not is_emoji(c):
+                break
+            result += c
+            if i + 1 < len(text):
+                next_c = text[i+1]
+                next_ord = ord(next_c)
+                is_modifier = next_ord == 0xFE0F or next_ord == 0x200D or (0x1F3FB <= next_ord <= 0x1F3FF)
+                is_flag_part = (0x1F1E6 <= ord(c) <= 0x1F1FF) and (0x1F1E6 <= next_ord <= 0x1F1FF)
+                if not is_modifier and not is_flag_part and ord(c) != 0x200D:
+                    break
+            i += 1
+        return result
+
+    emojis = []
+    i = 0
+    while i < len(name):
+        if is_emoji(name[i]):
+            e = extract_single_emoji_at(name, i)
+            emojis.append((e, i))
+            i += len(e)
+        else:
+            i += 1
+
+    if not emojis:
+        return ""
+
+    primary_emoji = emojis[0][0]
+    secondary_emoji = None
+
+    first_non_space = len(name) - len(name.lstrip())
+    for e, idx in emojis:
+        if idx == first_non_space:
+            primary_emoji = e
+            break
+
+    trailing_spaces = len(name) - len(name.rstrip())
+    end_idx = len(name) - trailing_spaces
+    for e, idx in reversed(emojis):
+        if idx + len(e) == end_idx:
+            secondary_emoji = e
+            break
+
+    if not secondary_emoji:
+        return primary_emoji
+
+    if secondary_emoji != primary_emoji:
+        return primary_emoji + secondary_emoji
+
+    return secondary_emoji
 
 
 @dataclass
@@ -608,6 +682,47 @@ class MultitestCommand(BaseCommand):
             'Multitest_Command', 'condense_paths', fallback='true'
         )
         self.condense_paths_mode: CondensePathsMode = _parse_condense_paths_mode(raw_cp)
+
+    async def _build_emoji_map(self, paths: list[str]) -> dict[str, str]:
+        """Build a mapping of hex node ID -> emoji for all nodes in the given paths."""
+        all_nodes: set[str] = set()
+        for path in paths:
+            for token in path.split(","):
+                token = token.strip()
+                if token and len(token) in (2, 4, 6) and all(c in '0123456789abcdef' for c in token):
+                    all_nodes.add(token)
+
+        if not all_nodes:
+            return {}
+
+        emoji_map: dict[str, str] = {}
+        try:
+            if hasattr(self.bot, 'repeater_manager'):
+                complete_db = await self.bot.repeater_manager.get_repeater_devices(include_historical=True)
+                for row in complete_db:
+                    pk = row.get('public_key', '')
+                    for node_id in list(all_nodes):
+                        if pk.startswith(node_id) and node_id not in emoji_map:
+                            name = row.get('name', '')
+                            emoji = _extract_emoji_from_name(name)
+                            if emoji:
+                                emoji_map[node_id] = emoji
+        except Exception:
+            pass
+
+        return emoji_map
+
+    @staticmethod
+    def _enhance_path_text_with_emoji(text: str, emoji_map: dict[str, str]) -> str:
+        """Replace hex node IDs in path text with hex+emoji, and use `-` hop separator."""
+        def replace_hex(match):
+            hex_val = match.group(0).lower()
+            emoji = emoji_map.get(hex_val, "")
+            return f"{hex_val}{emoji}" if emoji else hex_val
+
+        text = re.sub(r'\b([0-9a-fA-F]{2}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6})\b', replace_hex, text)
+        text = text.replace(",", "-")
+        return text
 
     @property
     def condense_paths(self) -> bool:
@@ -1074,12 +1189,20 @@ class MultitestCommand(BaseCommand):
         if session.collected_paths:
             # Sort paths for consistent output
             sorted_paths = sorted(session.collected_paths)
+
+            # Build emoji map for display enhancement
+            emoji_map = await self._build_emoji_map(sorted_paths)
+
             if len(sorted_paths) > 1 and self.condense_paths_mode == "flat":
                 paths_text = _condense_path_lines(sorted_paths, "flat")
             elif len(sorted_paths) > 1 and self.condense_paths_mode == "nested":
                 paths_text = _condense_path_lines(sorted_paths, "nested")
             else:
                 paths_text = "\n".join(sorted_paths)
+
+            if emoji_map:
+                paths_text = self._enhance_path_text_with_emoji(paths_text, emoji_map)
+
             path_count = len(sorted_paths)
 
             # Use configured format if available, otherwise use default

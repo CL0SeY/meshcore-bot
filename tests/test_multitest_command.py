@@ -166,7 +166,7 @@ class TestCondensePathLines:
         out = _condense_path_lines(paths, "flat")
         expected = "\n".join(
             [
-                f"e6,0c,85,82,28,1a {_CORNER}",
+                f"e6,0c,85,82,28,1a{_CORNER}",
                 f"{_INTER} cd,7e,01",
                 f"{_INTER} cd,7e,7a",
                 f"{_CHILD_LAST}09",
@@ -195,8 +195,8 @@ class TestCondensePathLines:
         out = _condense_path_lines(paths, "nested")
         expected = "\n".join(
             [
-                f"e6,0c,85,82,28,1a {_CORNER}",
-                f"{_INTER} cd,7e {_CORNER}",
+                f"e6,0c,85,82,28,1a{_CORNER}",
+                f"{_INTER} cd,7e{_CORNER}",
                 f"{_NEST_COL}{_INTER} 01",
                 f"{_NEST_COL}{_INTER} 7a",
                 f"{_NEST_COL}{_CHILD_LAST}09",
@@ -219,7 +219,7 @@ class TestCondensePathLines:
         assert out.count("e0") == 1
         assert out == "\n".join(
             [
-                f"d0,ab,86 {_CORNER}",
+                f"d0,ab,86{_CORNER}",
                 f"{_INTER} e0",
                 f"{_NEST_COL}{_INTER} 01",
                 f"{_NEST_COL}{_INTER} 1e",
@@ -239,7 +239,7 @@ class TestCondensePathLines:
         out = _condense_path_lines(paths, "nested")
         assert out == "\n".join(
             [
-                f"d3a0,27cf,d261,cdf1,7e76 {_CORNER}",
+                f"d3a0,27cf,d261,cdf1,7e76{_CORNER}",
                 f"{_INTER} 0101,0970",
                 f"{_NEST_COL}{_LAST} 1ed6",
                 f"{_LAST} 0101",
@@ -260,7 +260,7 @@ class TestCondensePathLines:
         out = _condense_path_lines(paths, "nested")
         assert out == "\n".join(
             [
-                f"b007,2a6c,e863,7e76 {_CORNER}",
+                f"b007,2a6c,e863,7e76{_CORNER}",
                 f"{_INTER} 0101",
                 f"{_INTER} 21cc,0970",
                 f"{_INTER} e0ee",
@@ -280,7 +280,7 @@ class TestCondensePathLines:
         out = _condense_path_lines(paths, "flat")
         expected = "\n".join(
             [
-                f"aa,bb {_CORNER}",
+                f"aa,bb{_CORNER}",
                 f"{_INTER} cc,dd",
                 f"{_INTER} cc,ee",
                 f"{_LAST} cc",
@@ -294,7 +294,7 @@ class TestCondensePathLines:
         out = _condense_path_lines(paths, "flat")
         expected = "\n".join(
             [
-                f"cdf1,7e76 {_CORNER}",
+                f"cdf1,7e76{_CORNER}",
                 f"{_INTER} 0101",
                 f"{_LAST} 0101,0970",
             ]
@@ -312,7 +312,7 @@ class TestCondensePathLines:
         out = _condense_path_lines(paths, "flat")
         expected = "\n".join(
             [
-                f"cdf119,860cca {_CORNER}",
+                f"cdf119,860cca{_CORNER}",
                 f"{_INTER} 010101",
                 f"{_INTER} e0eed9",
                 f"{_CHILD_LAST}1ed612",
@@ -326,7 +326,7 @@ class TestCondensePathLines:
         out = _condense_path_lines(paths, "flat")
         expected = "\n".join(
             [
-                f"41,96 {_CORNER}",
+                f"41,96{_CORNER}",
                 f"{_INTER} 13,01",
                 f"{_INTER} 13,01,1e",
                 f"{_LAST} 83,09",
@@ -348,7 +348,7 @@ class TestCondensePathLines:
         out = _condense_path_lines(paths, "flat")
         expected = "\n".join(
             [
-                f"cc,fe,17,b3,7e {_CORNER}",
+                f"cc,fe,17,b3,7e{_CORNER}",
                 f"{_INTER} 96,e0,01",
                 f"{_INTER} 96,e0,09",
                 f"{_INTER} 96,e0,1e",
@@ -371,7 +371,7 @@ class TestCondensePathLines:
         out = _condense_path_lines(paths, "flat")
         expected = "\n".join(
             [
-                f"e2,ab,1f,ef,55,21 {_CORNER}",
+                f"e2,ab,1f,ef,55,21{_CORNER}",
                 f"{_INTER} 01",
                 f"{_CHILD_LAST}1e",
                 f"{_INTER} 09",
@@ -391,7 +391,7 @@ class TestCondensePathLines:
         out = _condense_path_lines(paths, "flat")
         expected = "\n".join(
             [
-                f"d38a05,c4a86a,067b75,cafee0,1ffbd6,e8154b {_CORNER}",
+                f"d38a05,c4a86a,067b75,cafee0,1ffbd6,e8154b{_CORNER}",
                 f"{_INTER} 860cca",
                 f"{_LAST} 860cca,010101",
             ]
@@ -412,7 +412,7 @@ class TestCondensePathLines:
         out = _condense_path_lines(paths, "flat")
         expected = "\n".join(
             [
-                f"d38a05,479198,a837bc,7e7662 {_CORNER}",
+                f"d38a05,479198,a837bc,7e7662{_CORNER}",
                 f"{_INTER} e0eed9,010101",
                 f"{_INTER} e0eed9,0970d6",
                 f"{_INTER} e0eed9,1ed612",
